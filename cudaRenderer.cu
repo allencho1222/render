@@ -645,6 +645,11 @@ __global__ void kernelRenderCircles() {
 	float circleY = p.y * imageHeight;
 
 	
+	/* This will check whether the circle index "i" exist within or across the boundary of this thread block's pixels */
+	/* Multiplying the value 1.01 and 0.99 is very important to work correctly,
+	   Due to the small error from above(maybe the gap between normalized value(~1023) and floating value(0.xxx),
+	   I have to multply these constant, it is similar to extend the boundary of thread block's pixel */
+	/* I found this fact unexpectedly, because some of the results show me "correctness failed", others "correctness pass" */
 	if (extendXLeft <= circleX * 1.01  && extendXRight >= circleX * 0.99 && extendYTop <= circleY * 1.01 && extendYBottom >= circleY * 0.99) {
 		queue[queueIndex++] = i;
 	}
@@ -653,10 +658,19 @@ __global__ void kernelRenderCircles() {
     shmQueue[blockThreadIndex] = queueIndex;
     __syncthreads();
 
+    /* "prescan" is prefixSum algorithm providied by nVidia. I tried to use this to get
+       fast execution time, but failed to get correct result. Maybe I missed something. */
     //prescan(prefixSum, shmQueue, 256);
     //__syncthreads();
+    
+    /* All threads, together,  in this thread block will calculate prefixSum. */
     sharedMemExclusiveScan(blockThreadIndex, shmQueue, prefixSum, prefixSumScratch, 256);
     __syncthreads();
+
+    /* We have to guarantee that all threads must be located at this point. This is because
+       if some of threads are still in shareMemExclusiveScan, which means
+       they are still calculating prefixSum, other threads that is executing below code will
+       get incorrect value of prefixSum[255] */
 
     int globalIndex = prefixSum[255] + shmQueue[255];
 
@@ -674,10 +688,14 @@ __global__ void kernelRenderCircles() {
     }
     __syncthreads();
    
+
+    /* Loop circle indices that are stored in shared memory array "order[]" */
     for (int i= 0 ; i < globalIndex; i++) {
 	int a = order[i];
 	int index3 = 3 * a;
 	float3 p = *(float3*)(&cuConstRendererParams.position[index3]);
+
+        /* calculate center point of each pixel which is manged by a thread */
 	float2 pixelCenterNorm0 = make_float2(invWidth * (static_cast<float>(imageX) + 0.5f),
 			invHeight * (static_cast<float>(imageY) + 0.5f));
 	float2 pixelCenterNorm1 = make_float2(invWidth * (static_cast<float>(imageX + 1) + 0.5f),
@@ -712,6 +730,7 @@ __global__ void kernelRenderCircles() {
 	float2 pixelCenterNorm15 = make_float2(invWidth * (static_cast<float>(imageX + 3) + 0.5f),
 			invHeight * (static_cast<float>(imageY + 3) + 0.5f));
 */
+	/* each pixel will color RGB in parallel, because each thread has their own range of boundary of pixels */
 	shadePixel(a, pixelCenterNorm0, p, &localImgData0);
 	shadePixel(a, pixelCenterNorm1, p, &localImgData1);
 	shadePixel(a, pixelCenterNorm2, p, &localImgData2);
@@ -736,6 +755,7 @@ __global__ void kernelRenderCircles() {
 */
     }
 
+    /* finally 2x2 pixels' imgData is copied into global memory */
     *imgPtr0 = localImgData0;
     *imgPtr1 = localImgData1;
     *imgPtr2 = localImgData2;
