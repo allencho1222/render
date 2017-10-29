@@ -16,7 +16,17 @@
 
 #define SCAN_BLOCK_DIM   256  // needed by sharedMemExclusiveScan implementation
 #include "exclusiveScan.cu_inl"
-#include "circleBoxTest.cu_inl"
+
+
+#define NUM_BANKS 16
+#define LOG_NUM_BANKS 4
+#ifdef ZERO_BANK_CONFLICTS
+#define CONFLICT_FREE_OFFSET(n) ((n) >> NUM_BANKS + (n) >> (2 * LOG_NUM_BANKS))
+#else
+#define CONFLICT_FREE_OFFSET(n) ((n) >> LOG_NUM_BANKS)
+#endif
+
+
 ////////////////////////////////////////////////////////////////////////////////////////
 // Putting all the cuda kernels here
 ///////////////////////////////////////////////////////////////////////////////////////
@@ -445,6 +455,68 @@ __global__ void kernelRenderCircles() {
 }
 */
 ////////////////////////////////////////////////////////////////////////////////////////
+__device__ void prescan(float *g_odata, float *g_idata, int n)
+{
+	extern __shared__ float temp[];// allocated on invocation
+	int thid = threadIdx.x;
+	int offset = 1;
+
+	int ai = thid;
+	int bi = thid + (n/2);
+	int bankOffsetA = CONFLICT_FREE_OFFSET(ai);
+	int bankOffsetB = CONFLICT_FREE_OFFSET(ai);
+	temp[ai + bankOffsetA] = g_idata[ai];
+	temp[bi + bankOffsetB] = g_idata[bi]; 
+
+
+
+	for (int d = n>>1; d > 0; d >>= 1) // build sum in place up the tree
+	{
+ 		__syncthreads();
+		if (thid < d)
+		{ 
+			int ai = offset*(2*thid+1)-1;
+			int bi = offset*(2*thid+2)-1;
+			ai += CONFLICT_FREE_OFFSET(ai);
+			bi += CONFLICT_FREE_OFFSET(bi);
+
+			temp[bi] += temp[ai];
+		}
+		offset *= 2;
+	} 
+
+	if (thid==0) {
+		//temp[n – 1 /*+ CONFLICT_FREE_OFFSET(n - 1)*/ ] = 0;
+		temp[n - 1 + CONFLICT_FREE_OFFSET(n - 1)] = 0;
+	}
+	for (int d = 1; d < n; d *= 2) // traverse down tree & build scan
+	{
+		offset >>= 1;
+		__syncthreads();
+		if (thid < d)
+		{ 
+			int ai = offset*(2*thid+1)-1;
+			int bi = offset*(2*thid+2)-1;
+			ai += CONFLICT_FREE_OFFSET(ai);
+			bi += CONFLICT_FREE_OFFSET(bi); 
+
+
+			float t = temp[ai];
+			temp[ai] = temp[bi];
+			temp[bi] += t;
+		}
+	}
+ 	__syncthreads(); 
+
+
+	g_odata[ai] = temp[ai + bankOffsetA];
+	g_odata[bi] = temp[bi + bankOffsetB]; 
+} 
+
+
+
+
+
 __global__ void kernelRenderCircles() {
     
     int queue[25];
@@ -506,6 +578,8 @@ __global__ void kernelRenderCircles() {
     shmQueue[blockThreadIndex] = queueIndex; // here comes bottleneck, I don't know why 
     __syncthreads();
 
+    //prescan(prefixSum, shmQueue, 256);
+    //__syncthreads();
     sharedMemExclusiveScan(blockThreadIndex, shmQueue, prefixSum, prefixSumScratch, 256);
     __syncthreads();
 
@@ -513,6 +587,10 @@ __global__ void kernelRenderCircles() {
 
     int start = prefixSum[blockThreadIndex];
     int end = prefixSum[blockThreadIndex] + shmQueue[blockThreadIndex];
+
+    //int start = (blockThreadIndex == 0) ? 0 : prefixSum[blockThreadIndex - 1];
+    //int end =prefixSum[blockThreadIndex];
+    
 
     int localIndex = 0;
 
