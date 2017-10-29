@@ -655,8 +655,17 @@ __global__ void kernelRenderCircles() {
 	}
     }
 
+    /* Each thread copy their queueIndex(which has the number of circles inside or across thread block's boundary)
+       into shared memory array "shmQueue[]" */
+    /* For example, if each thread (here three) has queueIndex 3, 7, 5 respectively,
+       then, shmQueue[0] = 3, shmQueue[1] = 7, shmQueue[2] = 5 */
     shmQueue[blockThreadIndex] = queueIndex;
     __syncthreads();
+    /* Because "sharedMemExclusiveScan uses input data "shmQueue[]", we have to guarantee
+       that when "sharedMemExclusiveScan is called, "shmQueue[]" must be in consistent state,
+       which means all data had to be copied into this array at this point */
+
+
 
     /* "prescan" is prefixSum algorithm providied by nVidia. I tried to use this to get
        fast execution time, but failed to get correct result. Maybe I missed something. */
@@ -664,16 +673,27 @@ __global__ void kernelRenderCircles() {
     //__syncthreads();
     
     /* All threads, together,  in this thread block will calculate prefixSum. */
+    /* For example, from the above example, the final result of this functions is:
+   
+    			[0]     [1]     [2]
+       shmQueue[]        3       7       5
+      prefixSum[]        0       3      10
+    */
     sharedMemExclusiveScan(blockThreadIndex, shmQueue, prefixSum, prefixSumScratch, 256);
     __syncthreads();
 
     /* We have to guarantee that all threads must be located at this point. This is because
        if some of threads are still in shareMemExclusiveScan, which means
        they are still calculating prefixSum, other threads that is executing below code will
-       get incorrect value of prefixSum[255] */
+       get incorrect value of prefixSum[]*/
 
+    /* "globalIndex" will be the total number of circles that will be processed by this thread block */
     int globalIndex = prefixSum[255] + shmQueue[255];
 
+
+    /* By using prefixSum[] array it can calculate where to put its data */
+    /* For example, because threadIndex0 owns 3 circles (shown in above), it has to put its data
+       into shared memory array "order[]" index 0 to 3 */
     int start = prefixSum[blockThreadIndex];
     int end = start + shmQueue[blockThreadIndex];
 
@@ -687,8 +707,10 @@ __global__ void kernelRenderCircles() {
 	order[i] = queue[localIndex++];
     }
     __syncthreads();
-   
 
+    /* To get correct value of array "order", all threads has to stop here before 
+       executing below loop */
+   
     /* Loop circle indices that are stored in shared memory array "order[]" */
     for (int i= 0 ; i < globalIndex; i++) {
 	int a = order[i];
