@@ -3,7 +3,7 @@
 #include <math.h> 
 #include <stdio.h>
 #include <vector>
-
+#include <thrust/scan.h>
 #include <cuda.h>
 #include <cuda_runtime.h>
 #include <driver_functions.h>
@@ -21,7 +21,7 @@
 #define NUM_BANKS 16
 #define LOG_NUM_BANKS 4
 #ifdef ZERO_BANK_CONFLICTS
-#define CONFLICT_FREE_OFFSET(n) ((n) >> NUM_BANKS + (n) >> (2 * LOG_NUM_BANKS))
+#define CONFLICT_FREE_OFFSET(n) ((n) >> NUM_BANKS + (n) >> (2 * LOG_NUM_BANKS)) 
 #else
 #define CONFLICT_FREE_OFFSET(n) ((n) >> LOG_NUM_BANKS)
 #endif
@@ -40,7 +40,7 @@ struct GlobalConstants {
     float* velocity;
     float* color;
     float* radius;
-int imageWidth;
+    int imageWidth;
     int imageHeight;
     float* imageData;
 };
@@ -455,9 +455,9 @@ __global__ void kernelRenderCircles() {
 }
 */
 ////////////////////////////////////////////////////////////////////////////////////////
-__device__ void prescan(float *g_odata, float *g_idata, int n)
+__device__ void prescan(uint *g_odata, uint *g_idata, int n)
 {
-	extern __shared__ float temp[];// allocated on invocation
+	__shared__ uint temp[512];// allocated on invocation
 	int thid = threadIdx.x;
 	int offset = 1;
 
@@ -518,63 +518,85 @@ __device__ void prescan(float *g_odata, float *g_idata, int n)
 
 
 __global__ void kernelRenderCircles() {
-    
-    int queue[25];
+
+    int queue[18];
+    int queueIndex = 0;
 
     __shared__ uint shmQueue[256];
     __shared__ uint prefixSum[256];
     __shared__ uint prefixSumScratch[2 * 256];
+    __shared__ int order[2570];
 
-    __shared__ int order[2600];
+    //extern __shared__ int order[];
 
-    float4 localImgData;
 
-    int queueIndex = 0;
+    int blockThreadIndex = blockDim.x * threadIdx.y + threadIdx.x; 
+
     int numCircles = cuConstRendererParams.numCircles;
+    int threadsPerBlock = blockDim.x * blockDim.y;
+    int circle = (numCircles + threadsPerBlock - 1) / threadsPerBlock;
+
     int imageX = blockIdx.x * blockDim.x + threadIdx.x;
     int imageY = blockIdx.y * blockDim.y + threadIdx.y; 
-    int blockThreadIndex = blockDim.x * threadIdx.y + threadIdx.x; 
     short imageWidth = cuConstRendererParams.imageWidth;
     short imageHeight = cuConstRendererParams.imageHeight; 
+
+    float4 *imgPtr = (float4*)(&cuConstRendererParams.imageData[4 * (imageY * imageWidth + imageX)]);
+    float4 localImgData = *imgPtr;
 
     int pixelXFrom = blockDim.x * blockIdx.x;	// 0
     int pixelXTo = blockDim.x * (blockIdx.x + 1) - 1;	// 15
     int pixelYFrom = blockDim.y * blockIdx.y;
     int pixelYTo = blockDim.y * (blockIdx.y + 1) - 1;
 
+/*
+    int pixelXFrom = blockDim.x * blockIdx.x * 2;	// 0
+    int pixelXTo = 2 * blockDim.x * (blockIdx.x + 1) - 1;	// 15
+    int pixelYFrom = blockDim.y * blockIdx.y * 2;
+    int pixelYTo = 2 * blockDim.y * (blockIdx.y + 1) - 1;
+*/
+
     float invWidth = 1.f / imageWidth;
     float invHeight = 1.f / imageHeight;
 
-    int threadsPerBlock = blockDim.x * blockDim.y;
 
-    int circle = (numCircles + threadsPerBlock - 1) / threadsPerBlock; 
 
     int circleIndexFrom = blockThreadIndex * circle;
     int circleIndexTo = (blockThreadIndex + 1) * circle - 1;
 
-    float4 *imgPtr = (float4*)(&cuConstRendererParams.imageData[4 * (imageY * imageWidth + imageX)]);
+/*
+    int imgDataIndex = 0;
+    for (int y = imageY; y < imageY + 2; y++) {
+	for (int x = imageX; x < imageX + 2; x++) {
+    	    float4 *imgPtr = (float4*)(&cuConstRendererParams.imageData[4 * (y * imageWidth + x)]);
+	    localImgData[imgDataIndex++] = *imgPtr;
+	}
+    }
+*/
+
     //localImgData = (float4)cuConstRendererParams.imageData[4 * (imageY * imageWidth + imageX)];
-    localImgData = *imgPtr;
+    //localImgData = *imgPtr;
     //pixels[threadIdx.y][threadIdx.x] = *imgPtr;
     //float4 *shmImgPtr = &pixels[threadIdx.y][threadIdx.x];
 		
+
     for (int i = circleIndexFrom; i <= circleIndexTo; i++) {
 	int index3 = 3 * i;
 	float3 p = *(float3*)(&cuConstRendererParams.position[index3]);
 	float rad = cuConstRendererParams.radius[i];
-	
+	//float newRadWidth = rad * imageWidth;
+	//float newRadHeight = rad * imageHeight;	
 	float extendXLeft = pixelXFrom - (rad * imageWidth);
 	float extendXRight = pixelXTo + (rad * imageWidth);
 	float extendYTop = pixelYFrom - (rad * imageHeight);
 	float extendYBottom = pixelYTo + (rad * imageHeight);
 	float circleX = p.x * imageWidth;
 	float circleY = p.y * imageHeight;
-	if (extendXLeft <= circleX * 1.01  && extendXRight >= circleX * 0.99 && extendYTop <= circleY * 1.01 && extendYBottom >= circleY * 0.99)
+	if (extendXLeft <= circleX * 1.01  && extendXRight >= circleX * 0.99 && extendYTop <= circleY * 1.01 && extendYBottom >= circleY * 0.99) {
 		queue[queueIndex++] = i;
+	}
     }
 
-    //if (blockThreadIndex == 0)
-    	//printf("queueIndex: %d\n", queueIndex);
     shmQueue[blockThreadIndex] = queueIndex; // here comes bottleneck, I don't know why 
     __syncthreads();
 
@@ -584,9 +606,15 @@ __global__ void kernelRenderCircles() {
     __syncthreads();
 
     int globalIndex = prefixSum[255] + shmQueue[255];
-
+/*
+    if (blockThreadIndex == 0) {
+	if (globalIndex > 2000) {
+		printf("globalIndex: %d\n", globalIndex);
+	}
+    }
+*/
     int start = prefixSum[blockThreadIndex];
-    int end = prefixSum[blockThreadIndex] + shmQueue[blockThreadIndex];
+    int end = start + shmQueue[blockThreadIndex];
 
     //int start = (blockThreadIndex == 0) ? 0 : prefixSum[blockThreadIndex - 1];
     //int end =prefixSum[blockThreadIndex];
@@ -599,6 +627,8 @@ __global__ void kernelRenderCircles() {
     }
     __syncthreads();
    
+   //if (blockThreadIndex == 0)
+    //printf("order[%d]: %d\n", globalIndex);
     //if (blockThreadIndex == 0)
 	//printf("globalIndex: %d\n", globalIndex);
 
@@ -608,14 +638,32 @@ __global__ void kernelRenderCircles() {
 	float3 p = *(float3*)(&cuConstRendererParams.position[index3]);
 	float2 pixelCenterNorm = make_float2(invWidth * (static_cast<float>(imageX) + 0.5f),
 			invHeight * (static_cast<float>(imageY) + 0.5f));
+//	int imgDataIndex = 0;
 
-        //float4* imgPtr = (float4*)&cuConstRendererParams.imageData[4 * (imageY * imageWidth + imageX)];
+/*
+	for (int y = imageY; y < imageY + 2; y++) {
+	    for (int x = imageX; x < imageX + 2; x++) {
+		float2 pixelCenterNorm = make_float2(invWidth * (static_cast<float>(x) + 0.5f),
+				invHeight * (static_cast<float>(y) + 0.5f));
+		shadePixel(a, pixelCenterNorm, p, &localImgData[imgDataIndex++]);
+	    }
+	}
+*/
 	shadePixel(a, pixelCenterNorm, p, &localImgData);
+	//shadePixel(a, pixelCenterNorm, p, &shmImgData[threadIdx.y * 16 + threadIdx.x]);
     }
 
-    //cuConstRendererParams.imageData[4 * (imageY * imageWidth + imageX)] = localImgData;
+/*
+    imgDataIndex = 0;
+    for (int y = imageY; y < imageY + 2; y++) {
+	for (int x = imageX; x < imageX + 2; x++) {
+    	    float4 *imgPtr = (float4*)(&cuConstRendererParams.imageData[4 * (y * imageWidth + x)]);
+	    *imgPtr = localImgData[imgDataIndex++];
+	}
+    }
+*/
+    //*imgPtr = shmImgData[threadIdx.y * 16 + threadIdx.x];
     *imgPtr = localImgData;
-
 }
 
 
@@ -830,7 +878,20 @@ CudaRenderer::render() {
     dim3 blockDim(256, 1);
     dim3 gridDim((numCircles + blockDim.x - 1) / blockDim.x);
 */
+/*
+    int size = 2000;
+    if (sceneName == CIRCLE_RGB || sceneName == CIRCLE_RGBY)
+	size = 300;
+    else if (sceneName == CIRCLE_TEST_10K) 
+	size = 300;
+    else if (sceneName == CIRCLE_TEST_100K)
+	size = 1900;
+    else
+	size = 2800;
+   
 
+    printf("before kenrel size: %d\n", size);
+*/
     dim3 blockDim(16, 16);
     dim3 gridDim(
         (image->width + blockDim.x - 1) / blockDim.x,
