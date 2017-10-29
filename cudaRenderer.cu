@@ -519,13 +519,13 @@ __device__ void prescan(uint *g_odata, uint *g_idata, int n)
 
 __global__ void kernelRenderCircles() {
 
-    int queue[18];
+    int queue[50];
     int queueIndex = 0;
 
     __shared__ uint shmQueue[256];
     __shared__ uint prefixSum[256];
     __shared__ uint prefixSumScratch[2 * 256];
-    __shared__ int order[2570];
+    __shared__ int order[3000];
 
     //extern __shared__ int order[];
 
@@ -536,31 +536,75 @@ __global__ void kernelRenderCircles() {
     int threadsPerBlock = blockDim.x * blockDim.y;
     int circle = (numCircles + threadsPerBlock - 1) / threadsPerBlock;
 
-    int imageX = blockIdx.x * blockDim.x + threadIdx.x;
-    int imageY = blockIdx.y * blockDim.y + threadIdx.y; 
+    //int imageX = blockIdx.x * blockDim.x + threadIdx.x;
+    //int imageY = blockIdx.y * blockDim.y + threadIdx.y; 
+
+    int imageX = (blockIdx.x * blockDim.x + threadIdx.x) * 2;
+    int imageY = (blockIdx.y * blockDim.y + threadIdx.y) * 2;
+    //int imageX2 = imageX + 1;
+    //int imageY2 = imageY + 1;
     short imageWidth = cuConstRendererParams.imageWidth;
     short imageHeight = cuConstRendererParams.imageHeight; 
+/*
+    if (blockThreadIndex == 0) {
+	printf("%d\n", blockDim.x);
+	//printf("%d %d %d %d\n", imageX, imageY, imageX2, imageY2);
+    }
 
-    float4 *imgPtr = (float4*)(&cuConstRendererParams.imageData[4 * (imageY * imageWidth + imageX)]);
-    float4 localImgData = *imgPtr;
+*/
 
+/*
     int pixelXFrom = blockDim.x * blockIdx.x;	// 0
     int pixelXTo = blockDim.x * (blockIdx.x + 1) - 1;	// 15
     int pixelYFrom = blockDim.y * blockIdx.y;
     int pixelYTo = blockDim.y * (blockIdx.y + 1) - 1;
+*/
 
-/*
     int pixelXFrom = blockDim.x * blockIdx.x * 2;	// 0
     int pixelXTo = 2 * blockDim.x * (blockIdx.x + 1) - 1;	// 15
     int pixelYFrom = blockDim.y * blockIdx.y * 2;
     int pixelYTo = 2 * blockDim.y * (blockIdx.y + 1) - 1;
-*/
 
     float invWidth = 1.f / imageWidth;
     float invHeight = 1.f / imageHeight;
 
+    float4 *imgPtr0 = (float4*)(&cuConstRendererParams.imageData[4 * (imageY * imageWidth + imageX)]);
+    float4 *imgPtr1 = (float4*)(&cuConstRendererParams.imageData[4 * (imageY * imageWidth + imageX + 1)]);
+    float4 *imgPtr2 = (float4*)(&cuConstRendererParams.imageData[4 * ((imageY + 1) * imageWidth + imageX)]);
+    float4 *imgPtr3 = (float4*)(&cuConstRendererParams.imageData[4 * ((imageY + 1) * imageWidth + imageX + 1)]);
+/*
+    float4 *imgPtr4 = (float4*)(&cuConstRendererParams.imageData[4 * ((imageY + 1) * imageWidth + imageX)]);
+    float4 *imgPtr5 = (float4*)(&cuConstRendererParams.imageData[4 * ((imageY + 1) * imageWidth + imageX + 1)]);
+    float4 *imgPtr6 = (float4*)(&cuConstRendererParams.imageData[4 * ((imageY + 1) * imageWidth + imageX + 2)]);
+    float4 *imgPtr7 = (float4*)(&cuConstRendererParams.imageData[4 * ((imageY + 1) * imageWidth + imageX + 3)]);
+    float4 *imgPtr8 = (float4*)(&cuConstRendererParams.imageData[4 * ((imageY + 2)* imageWidth + imageX)]);
+    float4 *imgPtr9 = (float4*)(&cuConstRendererParams.imageData[4 * ((imageY + 2) * imageWidth + imageX + 1)]);
+    float4 *imgPtr10 = (float4*)(&cuConstRendererParams.imageData[4 * ((imageY + 2) * imageWidth + imageX + 2)]);
+    float4 *imgPtr11 = (float4*)(&cuConstRendererParams.imageData[4 * ((imageY + 2)* imageWidth + imageX + 3)]);
+    float4 *imgPtr12 = (float4*)(&cuConstRendererParams.imageData[4 * ((imageY + 3) * imageWidth + imageX)]);
+    float4 *imgPtr13 = (float4*)(&cuConstRendererParams.imageData[4 * ((imageY + 3) * imageWidth + imageX + 1)]);
+    float4 *imgPtr14 = (float4*)(&cuConstRendererParams.imageData[4 * ((imageY + 3)* imageWidth + imageX + 2)]);
+    float4 *imgPtr15 = (float4*)(&cuConstRendererParams.imageData[4 * ((imageY + 3)* imageWidth + imageX + 3)]);
+*/
+    float4 localImgData0 = *imgPtr0;
+    float4 localImgData1 = *imgPtr1;
+    float4 localImgData2 = *imgPtr2;
+    float4 localImgData3 = *imgPtr3;
+/*
+    float4 localImgData4 = *imgPtr4;
+    float4 localImgData5 = *imgPtr5;
+    float4 localImgData6 = *imgPtr6;
+    float4 localImgData7 = *imgPtr7;
+    float4 localImgData8 = *imgPtr8;
+    float4 localImgData9 = *imgPtr9;
+    float4 localImgData10 = *imgPtr10;
+    float4 localImgData11 = *imgPtr11;
+    float4 localImgData12 = *imgPtr12;
+    float4 localImgData13 = *imgPtr13;
+    float4 localImgData14 = *imgPtr14;
+    float4 localImgData15 = *imgPtr15;
 
-
+*/
     int circleIndexFrom = blockThreadIndex * circle;
     int circleIndexTo = (blockThreadIndex + 1) * circle - 1;
 
@@ -632,12 +676,56 @@ __global__ void kernelRenderCircles() {
     //if (blockThreadIndex == 0)
 	//printf("globalIndex: %d\n", globalIndex);
 
+
     for (int i= 0 ; i < globalIndex; i++) {
 	int a = order[i];
 	int index3 = 3 * a;
 	float3 p = *(float3*)(&cuConstRendererParams.position[index3]);
+	float2 pixelCenterNorm0 = make_float2(invWidth * (static_cast<float>(imageX) + 0.5f),
+			invHeight * (static_cast<float>(imageY) + 0.5f));
+	float2 pixelCenterNorm1 = make_float2(invWidth * (static_cast<float>(imageX + 1) + 0.5f),
+			invHeight * (static_cast<float>(imageY) + 0.5f));
+	float2 pixelCenterNorm2 = make_float2(invWidth * (static_cast<float>(imageX) + 0.5f),
+			invHeight * (static_cast<float>(imageY+ 1) + 0.5f));
+	float2 pixelCenterNorm3 = make_float2(invWidth * (static_cast<float>(imageX + 1) + 0.5f),
+			invHeight * (static_cast<float>(imageY + 1) + 0.5f));
+/*
+	float2 pixelCenterNorm4 = make_float2(invWidth * (static_cast<float>(imageX) + 0.5f),
+			invHeight * (static_cast<float>(imageY + 1) + 0.5f));
+	float2 pixelCenterNorm5 = make_float2(invWidth * (static_cast<float>(imageX + 1) + 0.5f),
+			invHeight * (static_cast<float>(imageY + 1) + 0.5f));
+	float2 pixelCenterNorm6 = make_float2(invWidth * (static_cast<float>(imageX + 2) + 0.5f),
+			invHeight * (static_cast<float>(imageY + 1) + 0.5f));
+	float2 pixelCenterNorm7 = make_float2(invWidth * (static_cast<float>(imageX + 3) + 0.5f),
+			invHeight * (static_cast<float>(imageY + 1) + 0.5f));
+	float2 pixelCenterNorm8 = make_float2(invWidth * (static_cast<float>(imageX) + 0.5f),
+			invHeight * (static_cast<float>(imageY + 2) + 0.5f));
+	float2 pixelCenterNorm9 = make_float2(invWidth * (static_cast<float>(imageX + 1) + 0.5f),
+			invHeight * (static_cast<float>(imageY + 2) + 0.5f));
+	float2 pixelCenterNorm10 = make_float2(invWidth * (static_cast<float>(imageX + 2) + 0.5f),
+			invHeight * (static_cast<float>(imageY + 2) + 0.5f));
+	float2 pixelCenterNorm11 = make_float2(invWidth * (static_cast<float>(imageX + 3) + 0.5f),
+			invHeight * (static_cast<float>(imageY + 2) + 0.5f));
+	float2 pixelCenterNorm12 = make_float2(invWidth * (static_cast<float>(imageX) + 0.5f),
+			invHeight * (static_cast<float>(imageY + 3) + 0.5f));
+	float2 pixelCenterNorm13 = make_float2(invWidth * (static_cast<float>(imageX + 1) + 0.5f),
+			invHeight * (static_cast<float>(imageY + 3) + 0.5f));
+	float2 pixelCenterNorm14 = make_float2(invWidth * (static_cast<float>(imageX + 2) + 0.5f),
+			invHeight * (static_cast<float>(imageY + 3) + 0.5f));
+	float2 pixelCenterNorm15 = make_float2(invWidth * (static_cast<float>(imageX + 3) + 0.5f),
+			invHeight * (static_cast<float>(imageY + 3) + 0.5f));
+*/
+/*			
 	float2 pixelCenterNorm = make_float2(invWidth * (static_cast<float>(imageX) + 0.5f),
 			invHeight * (static_cast<float>(imageY) + 0.5f));
+	float2 pixelCenterNorm2 = make_float2(invWidth * (static_cast<float>(imageX2) + 0.5f),
+			invHeight * (static_cast<float>(imageY) + 0.5f));
+	float2 pixelCenterNorm3 = make_float2(invWidth * (static_cast<float>(imageX) + 0.5f),
+			invHeight * (static_cast<float>(imageY2) + 0.5f));
+	float2 pixelCenterNorm4 = make_float2(invWidth * (static_cast<float>(imageX2) + 0.5f),
+			invHeight * (static_cast<float>(imageY2) + 0.5f));
+*/
+
 //	int imgDataIndex = 0;
 
 /*
@@ -649,8 +737,28 @@ __global__ void kernelRenderCircles() {
 	    }
 	}
 */
-	shadePixel(a, pixelCenterNorm, p, &localImgData);
+	shadePixel(a, pixelCenterNorm0, p, &localImgData0);
+	shadePixel(a, pixelCenterNorm1, p, &localImgData1);
+	shadePixel(a, pixelCenterNorm2, p, &localImgData2);
+	shadePixel(a, pixelCenterNorm3, p, &localImgData3);
+/*
+	shadePixel(a, pixelCenterNorm4, p, &localImgData4);
+	shadePixel(a, pixelCenterNorm5, p, &localImgData5);
+	shadePixel(a, pixelCenterNorm6, p, &localImgData6);
+	shadePixel(a, pixelCenterNorm7, p, &localImgData7);
+	shadePixel(a, pixelCenterNorm8, p, &localImgData8);
+	shadePixel(a, pixelCenterNorm9, p, &localImgData9);
+	shadePixel(a, pixelCenterNorm10, p, &localImgData10);
+	shadePixel(a, pixelCenterNorm11, p, &localImgData11);
+	shadePixel(a, pixelCenterNorm12, p, &localImgData12);
+	shadePixel(a, pixelCenterNorm13, p, &localImgData13);
+	shadePixel(a, pixelCenterNorm14, p, &localImgData14);
+	shadePixel(a, pixelCenterNorm15, p, &localImgData15);
+	//shadePixel(a, pixelCenterNorm2, p, &localImgData2);
+	//shadePixel(a, pixelCenterNorm3, p, &localImgData3);
+	//shadePixel(a, pixelCenterNorm4, p, &localImgData4);
 	//shadePixel(a, pixelCenterNorm, p, &shmImgData[threadIdx.y * 16 + threadIdx.x]);
+*/
     }
 
 /*
@@ -663,7 +771,40 @@ __global__ void kernelRenderCircles() {
     }
 */
     //*imgPtr = shmImgData[threadIdx.y * 16 + threadIdx.x];
-    *imgPtr = localImgData;
+    //*imgPtr = localImgData;
+    //*imgPtr2 = localImgData2;
+    //*imgPtr3 = localImgData3;
+    //*imgPtr4 = localImgData4;
+/*
+    yy = 0;
+    xx = 0;
+    for (int y = imageY; y < imageY + 2; y++) {
+	xx = 0;
+	for (int x = imageX; x < imageX + 2; x++) {
+    		float4 *imgPtr = (float4*)(&cuConstRendererParams.imageData[4 * (y * imageWidth + x)]);
+		*imgPtr = localImgData[yy][xx++];
+	}
+	yy++;
+    }
+*/
+    *imgPtr0 = localImgData0;
+    *imgPtr1 = localImgData1;
+    *imgPtr2 = localImgData2;
+    *imgPtr3 = localImgData3;
+/*
+    *imgPtr4 = localImgData4;
+    *imgPtr5 = localImgData5;
+    *imgPtr6 = localImgData6;
+    *imgPtr7 = localImgData7;
+    *imgPtr8 = localImgData8;
+    *imgPtr9 = localImgData9;
+    *imgPtr10 = localImgData10;
+    *imgPtr11 = localImgData11;
+    *imgPtr12 = localImgData12;
+    *imgPtr13 = localImgData13;
+    *imgPtr14 = localImgData14;
+    *imgPtr15 = localImgData15;
+*/
 }
 
 
@@ -894,8 +1035,8 @@ CudaRenderer::render() {
 */
     dim3 blockDim(16, 16);
     dim3 gridDim(
-        (image->width + blockDim.x - 1) / blockDim.x,
-        (image->height + blockDim.y - 1) / blockDim.y);
+        (image->width + (blockDim.x * 2) - 1) / (blockDim.x * 2),
+        (image->height + (blockDim.y * 2) - 1) / (blockDim.y * 2));
     kernelRenderCircles<<<gridDim, blockDim>>>();
     cudaDeviceSynchronize();
 }
