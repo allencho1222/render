@@ -519,7 +519,7 @@ __device__ void prescan(uint *g_odata, uint *g_idata, int n)
 
 __global__ void kernelRenderCircles() {
     /* this queue is intended for remembering circle index */
-    int queue[50];
+    int queue[40];
     int queueIndex = 0;
 
     /* These sharemd memory array will be used in prefixSum function */
@@ -530,7 +530,7 @@ __global__ void kernelRenderCircles() {
 
     /* This array contains circle indices that is colored inside a threa block boundary(32 x 32 pixels),
        and they are sorted by ascending order */
-    __shared__ int order[3000];
+    __shared__ int order[2900];
 
 
     /* Statement shown in line 542(extern keyword) used for dynamic allocation of shared memory.
@@ -703,6 +703,7 @@ __global__ void kernelRenderCircles() {
 
     int localIndex = 0;
 
+    /* order[] is sorted automatically because queue[] is already sorted. */
     for (int i = start; i < end; i++) {
 	order[i] = queue[localIndex++];
     }
