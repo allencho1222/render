@@ -454,6 +454,8 @@ __global__ void kernelRenderCircles() {
     }
 }
 */
+
+/* prefixSum provided by nVidia, but I failed to use this function */
 ////////////////////////////////////////////////////////////////////////////////////////
 __device__ void prescan(uint *g_odata, uint *g_idata, int n)
 {
@@ -519,7 +521,7 @@ __device__ void prescan(uint *g_odata, uint *g_idata, int n)
 
 __global__ void kernelRenderCircles() {
     /* this queue is intended for remembering circle index */
-    int queue[40];
+    int queue[35];
     int queueIndex = 0;
 
     /* These sharemd memory array will be used in prefixSum function */
