@@ -1,0 +1,24 @@
+Rendering to 1024x1024 image
+Loaded scene with 3 circles
+---------------------------------------------------------
+Initializing CUDA for CudaRenderer
+Found 2 CUDA devices
+Device 0: TITAN Xp
+   SMs:        30
+   Global mem: 12187 MB
+   CUDA Cap:   6.1
+Device 1: TITAN Xp
+   SMs:        30
+   Global mem: 12190 MB
+   CUDA Cap:   6.1
+---------------------------------------------------------
+WARNING: You're not running on a fast GPU, please consider using NVIDIA GTX 480, 670 or 780.
+---------------------------------------------------------
+
+Running benchmark, 4 frames, beginning at frame 0 ...
+Clear:    0.0699 ms
+Advance:  0.0011 ms
+Render:   0.1399 ms
+Total:    0.2110 ms
+
+Overall:  0.0009 sec (note units are seconds)

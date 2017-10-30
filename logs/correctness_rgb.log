@@ -1,0 +1,25 @@
+Rendering to 1024x1024 image
+Loaded scene with 3 circles
+Loaded scene with 3 circles
+---------------------------------------------------------
+Initializing CUDA for CudaRenderer
+Found 2 CUDA devices
+Device 0: TITAN Xp
+   SMs:        30
+   Global mem: 12187 MB
+   CUDA Cap:   6.1
+Device 1: TITAN Xp
+   SMs:        30
+   Global mem: 12190 MB
+   CUDA Cap:   6.1
+---------------------------------------------------------
+
+Running benchmark, 1 frames, beginning at frame 0 ...
+Copying image data from device
+***************** Correctness check passed **************************
+Clear:    0.0671 ms
+Advance:  0.0014 ms
+Render:   0.2299 ms
+Total:    0.2984 ms
+
+Overall:  0.0154 sec (note units are seconds)
